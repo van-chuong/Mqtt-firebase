@@ -1,18 +1,17 @@
 import mqtt from "mqtt"
-import admin from 'firebase-admin';
+import sdk, { AppwriteException } from 'node-appwrite';
 
-import serviceAccount from "./serviceAccountKey.json" assert { type: "json" };
+let client = new sdk.Client();
+
+client.setEndpoint("https://cloud.appwrite.io/v1")
+    .setProject("664b503a0039576e07ef")
+    .setKey("API_KEY")
+
+const databases = new sdk.Databases(client);
 
 const mqtt_url = "mqtt://45.117.83.198:1883/"
 
 export const saveData = () => {
-    const app = admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-        databaseURL: "https://test1-5ff57-default-rtdb.firebaseio.com"
-    });
-
-    var db = admin.database();
-    var ref = db.ref("sensors");
     var client = mqtt.connect(mqtt_url)
     let topicName = `application/85/device/+/event/up`
 
@@ -30,19 +29,47 @@ export const saveData = () => {
 
     client.on('message', async (topic, message, packet) => {
         try {
-            const temp = JSON.parse(message)
-
-            ref.child(temp.devEUI).set({
-                deviceName: temp.deviceName,
-                devEUI: temp.devEUI,
-                battery: temp.object.Battery,
-                smoke: temp.object.Smoke,
-                type: temp.object.Type,
-                time: temp.rxInfo[0].time
-            })
-        } catch (error) {
-            console.log(error)
-        }
+            const temp = JSON.parse(message);
+        
+            try {
+              await databases.createDocument(
+                "664b5b640000d1b66890",
+                "664b5b790033201b89ab",
+                temp.devEUI,
+                {
+                  deviceName: temp.deviceName,
+                  devEUI: temp.devEUI,
+                  Battery: temp.object.Battery,
+                  Smoke: temp.object.Smoke,
+                  Type: temp.object.Type,
+                  time: temp.rxInfo[0].time,
+                }
+              );
+              console.log('Document created successfully');
+            } catch (error) {
+              if (error instanceof AppwriteException && error.code === 409) {
+                // Document with the requested ID already exists, update the existing document
+                await databases.updateDocument(
+                  "664b5b640000d1b66890",
+                  "664b5b790033201b89ab",
+                  temp.devEUI,
+                  {
+                    deviceName: temp.deviceName,
+                    devEUI: temp.devEUI,
+                    Battery: temp.object.Battery,
+                    Smoke: temp.object.Smoke,
+                    Type: temp.object.Type,
+                    time: temp.rxInfo[0].time,
+                  }
+                );
+                console.log('Document updated successfully');
+              } else {
+                throw error;
+              }
+            }
+          } catch (error) {
+            console.error('Error processing message:', error);
+          }
     })
 
     client.on("packetsend", (packet) => {
